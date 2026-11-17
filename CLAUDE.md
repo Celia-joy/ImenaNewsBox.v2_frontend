@@ -1855,3 +1855,162 @@ viewer points at a real `application/pdf` file, not that Chrome draws it.
 
 **Gate:** typecheck, lint and format clean. **281 tests.** `pnpm build`
 compiles. **23 Playwright tests pass.**
+
+---
+
+## 23. Integration with backend-v2, planned 17 Nov 2026
+
+The backend (`../backend-v2`, FastAPI, `/api/v1`) is finished. §20's layer
+was written before its contract was known, and almost every assumption in it
+is wrong: paths, page shape, error shape, code length, roles, the invitation
+URL. The contract is the backend's `docs/auth.md`, `docs/domain.md` and its
+OpenAPI schema; this section is how the frontend meets it.
+
+### The user's decisions
+
+| Question           | Decision                                                                    |
+| ------------------ | --------------------------------------------------------------------------- |
+| where tokens live  | **BFF**: the Next server holds them; the browser never sees one             |
+| albums and gallery | **stay on fixtures**; the backend has no albums                             |
+| post drafts        | **kept on the device** until published; the backend has no drafts           |
+| person page        | **"year joined" dropped**; `UserPublicRead` has no `created_at`             |
+| code length        | **5 digits, changed in the backend** (its decision 76)                      |
+| role names         | **`member`, `social_media_manager`, `admin`** everywhere, as the API says   |
+| forgot password    | **a reset-request queue in the backend**, answered by another administrator |
+
+### BFF: how auth works
+
+- `/login` and `/admin/login` call server actions, which `POST /auth/login`.
+  The pending cookie carries the **family name** and nothing else: the
+  frontend decides nothing about roles any more.
+- `/verify` calls `POST /auth/verify`. The Next server keeps the access token
+  and the backend's `refresh_token` (read from its `Set-Cookie`) as its own
+  httpOnly cookies, then reads `GET /users/me` and keeps the role in a small
+  signed cookie. That cookie only chooses what the frontend shows; the
+  backend still refuses what a role may not do.
+- **Only middleware refreshes**, about two minutes before the access token
+  expires. Refresh tokens rotate and reuse revokes the session, so a request
+  that loses a race (409 `refresh_conflict`) must still hold a valid token.
+- Every server-to-backend call forwards the browser's `User-Agent` (it is
+  the device label), and sends `Origin` from `FRONTEND_ORIGIN`: refresh and
+  logout check it against the backend's `CORS_ORIGINS`.
+- `NEXT_PUBLIC_API_URL` and `credentials: "include"` go. `API_URL` is
+  server-only, such as `http://localhost:8000/api/v1`.
+- Client components never call the backend. They take data as props from
+  server components and change it through server actions, which
+  `revalidatePath` afterwards. Route handlers exist only where a stream is
+  needed (the resource PDF).
+- Deleted: `features/auth/admin.ts`, `roles.ts`, `ADMIN_PASSWORD`,
+  `DEV_PASSWORDS`, the invitation stand-in, and the frontend-signed role in
+  the session token.
+
+### The steps
+
+Each one is a PR on its own and leaves the gate green.
+
+| #   | Step                                                                                                                                                                                           |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B1  | **backend**: 5-digit codes. **Done**, merged as #35 (decision 76)                                                                                                                              |
+| B2  | **backend**: the reset-request queue and the two-admin floor. **Done**, merged as #36 (decisions 77, 78)                                                                                       |
+| 0   | local stack. **Done**, see below                                                                                                                                                               |
+| 1   | transport: types generated from `/openapi.json`, `endpoints.ts` rewritten, `toError()` reading `{error: {code, message, details}}`, `Page` to `Paginated`, `Origin` and `User-Agent`. **Done** |
+| 2   | auth over the BFF; `blogger` becomes `social_media_manager`; `SignedInProvider` from `/users/me`                                                                                               |
+| 3   | invitations: one `/invitation` page reading `location.hash`; `/invite/[token]` and its `/signup` retired                                                                                       |
+| 4   | forgot password and the reset queue, against B2                                                                                                                                                |
+| 5   | the register and directory: `family_name` field, sub-family and promotion selects, **Remove** becomes **Deactivate**, **Undo** reactivates, **Send a new link**                                |
+| 6   | profile: display name, birthday, bio, photo; confirming a changed email; devices from `/auth/sessions`                                                                                         |
+| 7   | wishes and upcoming birthdays                                                                                                                                                                  |
+| 8   | blog reading: a Portable Text renderer for the backend's block set, Sanity images                                                                                                              |
+| 9   | studio posts: image upload, then create, patch or delete by Sanity id; drafts stay on the device                                                                                               |
+| 10  | resources: list, a route handler streaming the PDF, an upload screen for social media managers and admins                                                                                      |
+| 11  | fixtures retired where the API answers; Playwright against a seeded backend; hosting variables                                                                                                 |
+
+### B2: the reset-request queue, as built
+
+The backend already reset an administrator's password by having another
+admin resend their invitation (`POST /users/{id}/invitation`): the link goes
+to the address on record and sets a new password. The queue is the front
+half, which is how the other administrators find out. The contract is
+`docs/auth.md`, "Forgotten admin passwords".
+
+- `POST /auth/reset-requests`, no login, `{family_name}`: always 202 with
+  the same `{message}`, so it never says who is an administrator. For an
+  active admin with no open request it records one, and emails every
+  **other** active admin after the response.
+- `GET /auth/reset-requests`, admins: open requests, oldest first, never
+  their own, as `{id, requested_at, user: {id, family_name, display_name,
+email}}`.
+- `POST /auth/reset-requests/{id}/approve`, admins, never their own: sends
+  the invitation link to the address on record and closes the request. 403
+  `cannot_answer_own_reset_request`, 404 `reset_request_not_found`, 429
+  `invitation_recently_sent`, 503 on a failed email (the request stays open).
+- `POST /auth/reset-requests/{id}/decline`, admins, never their own: closes
+  it and emails **nobody**.
+
+**The two-administrator floor is in the backend now.** Demoting or
+deactivating one of the last two active admins is a 409 `too_few_admins`, so
+the frontend's disabled controls (§21) are a courtesy over a real rule.
+
+### Steps 0 and 1, applied 17 Nov 2026
+
+**The local stack.** In `../backend-v2`: Docker Desktop running,
+`uv run alembic upgrade head`, `uv run python scripts/seed_admin.py` (the
+first admin from its `.env`), then `uv run fastapi dev src/app/main.py`.
+The backend's `.env` sends mail through a real SMTP account, so login codes
+reach real inboxes and no mail catcher is needed. Here, `.env.local` holds
+`API_URL`, `FRONTEND_ORIGIN` and a generated `AUTH_SECRET`; `.env.example`
+documents all three.
+
+**The contract is generated, not guessed.** `pnpm api:types` copies the
+backend's schema to `src/types/openapi.json` (committed, so nothing else
+needs the backend) and generates `src/types/api.gen.ts`. `types/wire.ts`
+names the backend's shapes; `endpoints.test.ts` fails if any path in
+`endpoints.ts` is not in the schema.
+
+| File                                           | Now                                                                                                                      |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `lib/env.ts`                                   | server-only: `API_URL`, `FRONTEND_ORIGIN`, `API_TIMEOUT_MS`. No `NEXT_PUBLIC_` value; `hasApi()` is false in the browser |
+| `lib/api-client.ts`                            | server-only. `Origin` on every call, the browser's `User-Agent` when given, `no-store`, no browser credentials           |
+| `types/api.ts`                                 | `Paginated` is the backend's `{items, total, page, limit}`; `ApiError.isSessionOver` replaces a 401 check                |
+| `lib/api-auth.ts`                              | `apiAuth()`: the token and the user agent. The token is still the frontend's own until step 2                            |
+| `services/{auth,users,wishes,posts,resources}` | one per backend feature; `members`, `albums` and `invitations` deleted (no such endpoints)                               |
+
+**Three things worth knowing.**
+
+- **Not every 401 means the session ended.** A wrong code
+  (`invalid_code`) and a wrong admin password (`invalid_credentials`) are
+  401s too. The old client replaced every 401's message with "Your session
+  has ended", which would have told an administrator who mistyped their
+  password that they had been signed out. `isSessionOver` checks the code.
+- **A cleared cookie is not a token.** On logout Starlette answers
+  `refresh_token=""; Max-Age=0`, and a naive reader keeps `""` (two quote
+  characters) as the token. `readRefreshToken` treats a cleared cookie as
+  none; a test holds it.
+- **Checked against the real backend**, with calls that send no email:
+  `Origin` reaches it (refused when foreign), `Cookie` reaches it, a 422
+  becomes field errors, and every refusal keeps the backend's own words.
+  `grep` finds none of the layer in `.next/static`.
+
+**The holding state until steps 3 and 4.** The invitation, admin-signup,
+reset and forgot-password screens answer from their stand-ins whatever
+`API_URL` says. They used to call the backend from the browser, which the
+BFF forbids, and their pages are replaced in those steps. `SetPasswordForm`
+takes an optional `send` action, and says nothing was stored without one.
+
+**Gate:** typecheck, lint and format clean. **337 tests over 43 files**, up
+from 281. `pnpm build` compiles; shared first load is 213 kB.
+
+### Stays on fixtures
+
+Albums and the gallery (and the studio's album tools), likes and comments,
+notifications, branch mottos, the tree's copy. Post drafts live on the device.
+
+### Risks
+
+- **Uploads and Vercel.** Functions take at most 4.5 MB per request;
+  resources allow 10 MB and photos 5 MB. Settle hosting before step 10.
+  Server actions also need `serverActions.bodySizeLimit` raised.
+- **Neon cold starts.** The first query after idle is slow; keep the timeout
+  and the error state.
+- **The router cache.** `staleTimes.dynamic` is 30 s, so every mutation
+  revalidates.
