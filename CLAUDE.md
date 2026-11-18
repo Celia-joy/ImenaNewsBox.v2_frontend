@@ -2070,6 +2070,42 @@ and shows the backend's words; it costs one of the backend's five tries.
 **Not yet:** the profile still reads the sample register in fixture mode
 and nothing in backend mode (step 6); Google sign-in stays disabled.
 
+### Waiting for an email, 18 Nov 2026
+
+The first real login sent no code. Gmail took about 7.5 seconds here just
+to connect, start TLS and say hello, so the backend's 5 seconds per attempt
+ran out every time, and this frontend's 10-second wait would have too. The
+backend now gives each email one 25-second budget (its decision 43,
+`fix/smtp-time-budget`), and every call that makes it send one waits
+`EMAIL_TIMEOUT_MS` (40 s, `lib/env.ts`): `login`, `approveReset`,
+`resendEmailCode`, `create`, `update`, `invite`. Everything else keeps the
+10-second limit. `email-wait.test.ts` holds both halves.
+
+### Staying signed in, 18 Nov 2026
+
+The next real login worked and then went straight back to the login, and
+the login asked for another code. Two things:
+
+- **A bug from step 2.** `apiAuth()` still sent `SESSION_COOKIE` (the
+  frontend's own signed token) as the backend's bearer token. The backend
+  refused it, `getViewer()` took the refusal for a signed-out visitor, and
+  the layout sent them to the login. It sends `ACCESS_COOKIE` now, and
+  `api-auth.test.ts` holds it.
+- **The login was shown to a signed-in device.** The middleware now sends a
+  device with a session past `/login` to where it was headed (a plain path
+  on this site only) or to `/dashboard`, and an administrator past
+  `/admin/login` to `/admin`. A member still sees the administrators' door,
+  since the device may be handed to one.
+
+That second change needs a way out for a session the backend has ended
+since (revoked from another device, say), or the layout and the login
+would send the person back and forth. `requireViewer()` now redirects to
+`/session-ended`, a route that asks the backend before it does anything: it
+refreshes an access token that has only run out, keeps the cookies when the
+session still works or the backend cannot be reached, and clears them only
+when the backend agrees the session is over. It never takes the page's word
+for it, because a cookie-clearing link is one any other site could send.
+
 ### Stays on fixtures
 
 Albums and the gallery (and the studio's album tools), likes and comments,
