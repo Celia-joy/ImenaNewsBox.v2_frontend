@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Nunito_Sans, Roboto } from "next/font/google";
 import { MotionProvider } from "@/components/motion/MotionProvider";
+import { RouteProgress } from "@/components/layout/RouteProgress";
 import "@/styles/globals.css";
-import { QueryProvider } from "@/components/providers/QueryProvider";
 
 const roboto = Roboto({
   subsets: ["latin"],
@@ -40,12 +40,12 @@ export default function RootLayout({
         </noscript>
       </head>
       <body className="min-h-dvh antialiased">
-        {/* The query cache wraps everything, so any client component can
-            read from the backend without a provider of its own. Motion stays
-            inside it: it is about how things arrive, not what they are. */}
-        <QueryProvider>
-          <MotionProvider>{children}</MotionProvider>
-        </QueryProvider>
+        {/* No query provider here: client components never call the backend
+            (they go through server actions, CLAUDE.md §23), so the cache is
+            mounted only by the page that uses it, /invitation, rather than
+            adding its ~9 kB to every route. */}
+        <RouteProgress />
+        <MotionProvider>{children}</MotionProvider>
       </body>
     </html>
   );

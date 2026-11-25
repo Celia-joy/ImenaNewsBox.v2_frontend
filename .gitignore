@@ -54,3 +54,6 @@ next-env.d.ts
 .agents/
 .claude/
 skills-lock.json
+
+# A browser's "Save page as" folder: a saved page and everything it loaded.
+*_files/

@@ -7,6 +7,8 @@ import { OfflineBanner } from "@/components/layout/OfflineBanner";
 import { CommandPalette } from "@/components/ui/CommandPalette";
 import { searchCommands } from "@/features/search/commands";
 import { MemberFooter } from "@/components/layout/MemberFooter";
+import { MinimalFooter } from "@/components/layout/MinimalFooter";
+import { MemberFooterSwitch } from "@/components/layout/MemberFooterSwitch";
 import { requireViewer } from "@/lib/viewer";
 
 /* The member frames are set in their own faces. Loading them here rather
@@ -65,7 +67,10 @@ export default async function MemberLayout({
             {children}
           </main>
 
-          <MemberFooter />
+          <MemberFooterSwitch
+            minimal={<MinimalFooter />}
+            rich={<MemberFooter />}
+          />
           <CommandPalette commands={searchCommands(role)} />
         </ToastProvider>
       </SignedInProvider>

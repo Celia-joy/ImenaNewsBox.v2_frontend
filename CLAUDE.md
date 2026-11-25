@@ -2151,6 +2151,25 @@ The backend's `FRONTEND_URL` must be this frontend's address (locally
 `pnpm build` compiles; `/invitation` is 340 kB first load, like the other
 auth pages. The six invitation Playwright tests pass.
 
+### `main` rewritten, 25 Nov 2026
+
+#26 ("Fine-tunements") added 14.5 MB to `public/images/` and nothing else:
+a ChatGPT conversation saved with the browser's "Save page as" (the page and
+its `_files/` folder) and six unused screenshots, all served as public files.
+#27 ("Chore/birthday refinements") was a redesign still in progress: it broke
+the member layout (an unclosed `ToastProvider`, `requireViewer` no longer
+imported), took the query provider away from `/invitation`, and failed lint.
+Both merged with `lint` red, because the ruleset required a check named `CI`
+that no job reports; it now requires `lint`, `unit`, `e2e` and
+`malware-guard`.
+
+`main` was reset to #25 and #27's work re-applied in one commit, without the
+saved page, the screenshots, `design-references/`, `scripts/dev-warm.mjs`
+(it minted the old `v2` cookie), or the `public/**` lint exclusion; with the
+layout fixed, the resources page back on `useToast`, and `QueryProvider`
+mounted by `/invitation` alone instead of the root layout. `.gitignore`
+refuses `*_files/`.
+
 ### Step 12, later: Google sign-in
 
 Deferred by the user until everything else works end to end. What it takes:

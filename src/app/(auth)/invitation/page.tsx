@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { QueryProvider } from "@/components/providers/QueryProvider";
 import { AuthShell } from "@/features/auth/components/AuthShell";
 import { InvitationFlow } from "@/features/invitations/components/InvitationFlow";
 
@@ -21,7 +22,11 @@ export const metadata: Metadata = {
 export default function InvitationPage() {
   return (
     <AuthShell>
-      <InvitationFlow />
+      {/* The flow asks who the link is for with a cached query; this is the
+          one page that needs the provider, so it mounts its own. */}
+      <QueryProvider>
+        <InvitationFlow />
+      </QueryProvider>
     </AuthShell>
   );
 }
